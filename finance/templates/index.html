@@ -1,10 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Title</title>
-</head>
-<body>
+{% extends "layout.html" %}
 
-</body>
-</html>
+{% block title %}
+    Portfolio
+{% endblock %}
+
+{% block main %}
+<table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th colspan="2">Shares</th>
+                <th>Price</th>
+                <th>TOTAL</th>
+            </tr>
+        </thead>
+        <tbody>
+
+        </tbody>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td class="border-0">{{ row.symbol }}</td>
+                <td class="border-0" colspan="2">{{ row.shares }}</td>
+                <td class="border-0">{{ row.current_price | usd }}</td>
+                <td class="border-0">{{ row.total_amount | usd }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td class="border-0 fw-bold" align="center">Current balance</td>
+                <td class="border-0 text-decoration-underline" align="center">{{ current_balance | usd }}</td>
+            </tr>
+            <tr>
+                <td class="border-0 fw-bold" align="center">TOTAL</td>
+                <td class="border-0 text-decoration-underline" align="center">{{ grand_total | usd }}</td>
+            </tr>
+        </tfoot>
+</table>
+{% endblock %}

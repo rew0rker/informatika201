@@ -21,3 +21,15 @@ nav .navbar-brand .green
 {
     color: #2e944b;
 }
+
+.table {
+    margin-bottom: 1rem;
+    color: var(--bs-table-color);
+    vertical-align: top;
+    border-color: var(--bs-table-border-color);
+}
+
+table
+{
+    caption-side: bottom;
+}
