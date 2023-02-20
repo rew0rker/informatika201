@@ -9,7 +9,6 @@ import datetime
 from helpers import apology, login_required, lookup, usd
 import colorama
 
-# Configure application
 app = Flask(__name__)
 
 # Custom filter
@@ -20,10 +19,10 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-# Configure CS50 Library to use SQLite database
+# подключаем sql
 db = SQL("sqlite:///finance.db")
 
-# Make sure API key is set
+# проверка что api_key ввели
 if not os.environ.get("API_KEY"):
     raise RuntimeError("API_KEY not set")
 
@@ -41,16 +40,15 @@ def after_request(response):
 @login_required
 def index():
     """Show portfolio of stocks"""
+    user_id = session['user_id']
 
-    user = db.execute("SELECT id, cash FROM users WHERE id = :id", id=session['user_id'])
-    print(f"session user={session}, users: {user}")
+    transaction = db.execute(
+        "SELECT symbol, SUM(shares) as shares, purchase_price FROM purchases WHERE owner_id = :id GROUP BY symbol",
+        id=session['user_id'])
 
-    rows = db.execute("SELECT * FROM purchases WHERE owner_id = :id", id=session['user_id'])
-    print(rows)
+    current_balance = db.execute("SELECT cash FROM users WHERE id = :id", id=user_id)[0]["cash"]
 
-    current_balance = user[0]['cash']
-
-    for row in rows:
+    for row in transaction:
         if row["symbol"]:
             quote = lookup(row["symbol"])  # <-- эта строка возвращает котировку только для последней покупки
             row["current_price"] = quote["price"]
@@ -59,8 +57,8 @@ def index():
             row["current_price"] = 0.0
             row["total_amount"] = 0
 
-    grand_total = sum([row["total_amount"] for row in rows]) + current_balance
-    return render_template("index.html", rows=rows,
+    grand_total = sum([row["total_amount"] for row in transaction]) + current_balance
+    return render_template("index.html", transaction=transaction,
                            current_balance=current_balance, grand_total=grand_total)
 
 
@@ -83,26 +81,26 @@ def buy():
         if stock is None:
             return apology("Ticker does not exist")
 
-        if shares < 1:
-            return apology("The minimum number of shares must be at least 1")
+        if shares < 0:
+            return apology("Not a positive integer")
 
-        transaction_value = shares * stock["price"]
+        transaction = shares * stock["price"]
 
+        # получаем значение баланса текущего юзера
         user_id = session["user_id"]
-        user_cash_db = db.execute("SELECT cash FROM users WHERE id = :id", id=user_id)
-        user_cash = user_cash_db[0]["cash"]
+        row = db.execute("SELECT cash FROM users WHERE id = ?", user_id)
+        user_cash = row[0]["cash"]
 
-        if user_cash < transaction_value:  # недостаточно средств
+        if user_cash < transaction:  # недостаточно средств
             return apology("Insufficient funds")
 
-        uptd_cash = user_cash - transaction_value
+        new_balance = user_cash - transaction
 
-        # update the SQL database
-        db.execute("UPDATE users SET cash = :cash WHERE id = :id", cash=uptd_cash, id=user_id)
+        # обновляем значенияв бд
+        db.execute("UPDATE users SET cash = :cash WHERE id = :id", cash=new_balance, id=user_id)
 
         date = datetime.datetime.now()
 
-        print(f"{shares} cost {stock['price']}")
         db.execute("INSERT INTO purchases (owner_id, symbol, shares, purchase_price, date) VALUES (?, ?, ?, ?, ?)",
                    user_id,
                    stock["symbol"], shares, stock["price"], date)
@@ -119,7 +117,6 @@ def history():
     """Show history of transactions"""
     user_id = session["user_id"]
     history_db = db.execute("SELECT * FROM purchases WHERE owner_id = :id", id=user_id)
-    print(history_db)
     return render_template("history.html", history=history_db)
 
 
@@ -164,10 +161,10 @@ def login():
 def logout():
     """Log user out"""
 
-    # Forget any user_id
+    # очищаем текущую сессию
     session.clear()
 
-    # Redirect user to login form
+    # отправляем юзера на домашнюю страницу
     return redirect("/")
 
 
@@ -176,15 +173,16 @@ def logout():
 def quote():
     """Get stock quote."""
     if request.method == "POST":
-        try:
-            quote = lookup(request.form.get("requested_share"))
+        if not request.form.get("symbol"):
+            return apology("must provide symbol")
 
-        except:
+        stock = lookup(request.form.get("symbol").upper())
+        if stock is None:
             return apology("No share found for this symbol")
 
-        return render_template("quoted.html", quote=quote)
+        return render_template("quoted.html", quote=stock)
 
-    # User reached route via GET (as by clicking a link or via redirect)
+    # if request is GET
     else:
         return render_template("quote.html")
 
@@ -199,19 +197,35 @@ def register():
 
         # Ensure what username was submitted
         if not request.form.get("username"):
-            return apology("must provide username", 403)
+            return apology("must provide username", 400)
 
-        # Ensure what password was submitted
-        elif not request.form.get("password"):
-            return apology("must provide password", 403)
+        password = request.form.get("password")
+        import re
+        if (len(password) <= 8):
+            return apology("password must be longer than 7 symbols", 400)
+
+        elif not re.search("[a-z]", password):
+            return apology("password must contain a-z letters", 400)
+
+        elif not re.search("[A-Z]", password):
+            return apology("password must contain A-Z capital letters", 400)
+
+        elif not re.search("[0-9]", password):
+            return apology("password must contain numbers", 400)
+
+        elif not re.search("[_@$&?]", password):
+            return apology("password must contain special symbols", 400)
+
+        elif re.search("\s", password):
+            return apology("must provide password", 400)
 
         # Ensure what password confirm was submitted
-        elif not request.form.get("confirmation"):
-            return apology("must provide confirm password", 403)
+        if not request.form.get("confirmation"):
+            return apology("must provide confirm password", 400)
 
         # Ensure what password and confirm password are equal
         elif request.form.get("password") != request.form.get("confirmation"):
-            return apology("Password mismatch", 403)
+            return apology("Password mismatch", 400)
 
         # check for uniql username
         try:
@@ -243,62 +257,66 @@ def sell():
     """Sell shares of stock"""
     if request.method == "POST":
         # проверяем на правильный символ
-        stock = lookup(request.form.get("symbol"))
-        if not stock:
-            return apology("Missing Symbol")
+        symbol = request.form.get("symbol")
+        shares = int(request.form.get("shares"))
 
-        # убеждаемся, что пароль был отправлен
-        elif not request.form.get("shares"):
-            return apology("Missing shares")
+        if not symbol:
+            return apology("You must enter symbol ticker")
 
-        else:
-            shares = int(request.form.get("shares"))
+        stock = lookup(request.form.get("symbol").upper())
 
-            # cash = db.execute("SELECT cash FROM users WHERE id = :id", id=session["user_id"])
-            # cash = cash[0]["cash"]
+        if stock is None:
+            return apology("Ticker does not exist")
 
-            # select the symbol shares of that user
-            user_id = session["user_id"]
-            user_shares = db.execute("SELECT shares FROM purchases WHERE owner_id = :id AND symbol=:symbol", id=user_id,
-                                     symbol=stock["symbol"])
+        if shares < 0:
+            return apology("The minimum number of shares must be at least 1")
 
-            # stocks = db.execute("SELECT shares, symbol FROM purchases WHERE owner_id=:id", id=session["user_id"])
+        # select the symbol shares of that user
+        user_id = session["user_id"]
+        # stocks = db.execute("SELECT shares, symbol FROM purchases WHERE owner_id=:id", id=session["user_id"])
 
-            # check if enough shares to sell
-            if user_shares[0]["shares"] < shares:
-                return apology("Too many shares you wanna sell")
+        # update user cash (increase)
+        transaction_val = shares * stock["price"]
+        cash = db.execute("SELECT cash FROM users WHERE id = :id", id=user_id)[0]["cash"]
+        new_balance = cash + transaction_val
 
-            # update  of a sell
-            date = datetime.datetime.now()
-            db.execute("INSERT INTO purchases (owner_id, symbol, shares, purchase_price, date) VALUES (?, ?, ?, ?, ?)",
-                       user_id,
-                       stock["symbol"], shares, stock["price"], date)
+        db.execute("UPDATE users SET cash = cash + :cash_after WHERE id = :id", id=user_id,
+                   cash_after=new_balance)
 
-            # update user cash (increase)
-            db.execute("UPDATE users SET cash = cash + :cash_after WHERE id = :id", id=session["user_id"],
-                       cash_after=stock["price"] * float(shares))
+        # update  of a sell
+        date = datetime.datetime.now()
+        db.execute("INSERT INTO purchases (owner_id, symbol, shares, purchase_price, date) VALUES (?, ?, ?, ?, ?)",
+                   user_id,
+                   stock["symbol"], (-1) * shares, stock["price"], date)
 
-            # decrement the shares count
-            print("кол-во акций юзера", user_shares[0]["shares"])
-            shares_total = user_shares[0]["shares"] - shares
+        # проверка есть ли у пользователя данные акции на продажу
+        user_shares = db.execute("SELECT shares FROM purchases WHERE owner_id = :id AND symbol=:symbol", id=user_id,
+                                 symbol=stock["symbol"])
 
-            # если после вычитания ноль, удалить акции из портфеля
-            if shares_total == 0:
-                db.execute("DELETE FROM purchases \
-                        WHERE owner_id=:id AND symbol=:symbol", id=session["user_id"], symbol=stock["symbol"])
-            # otherwise, update portfolio shares count
-            else:
-                db.execute("UPDATE purchases SET shares=:shares \
-                    WHERE owner_id=:id AND symbol=:symbol", shares=shares_total, id=session["user_id"],
-                           symbol=stock["symbol"])
+        if user_shares[0]["shares"] < shares:
+            return apology("Too many shares you wanna sell")
 
-            # flash bought alert
-            flash('Sold!')
+        # decrement the shares count
+        shares_total = user_shares[0]["shares"] - shares
+        # если после вычитания ноль, удалить акции из портфеля
+        if shares_total == 0:
+            db.execute("DELETE FROM purchases \
+                    WHERE owner_id=:id AND symbol=:symbol", id=session["user_id"], symbol=stock["symbol"])
 
-            # Redirect user to home page
-            return redirect("/")
+        # otherwise, update portfolio shares count
+        # else:
+        #     db.execute("UPDATE purchases SET shares=:shares \
+        #         WHERE owner_id=:id AND symbol=:symbol", shares=shares_total, id=session["user_id"],
+        #                symbol=stock["symbol"])
+
+        # flash bought alert
+        flash('Sold!')
+
+        # Redirect user to home page
+        return redirect("/")
 
     else:
         # If request method GET
-        stocks = db.execute("SELECT shares, symbol FROM purchases WHERE owner_id=:id", id=session["user_id"])
-        return render_template("sell.html", stocks=stocks)
+        symbols = db.execute("SELECT symbol FROM purchases WHERE owner_id=:id GROUP BY symbol HAVING SUM(shares)",
+                             id=session["user_id"])
+        return render_template("sell.html", symbols=symbols)
