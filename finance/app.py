@@ -7,7 +7,7 @@ from tempfile import mkdtemp
 from werkzeug.security import check_password_hash, generate_password_hash
 import datetime
 from helpers import apology, login_required, lookup, usd
-import colorama
+import re
 
 app = Flask(__name__)
 
@@ -71,18 +71,23 @@ def buy():
 
     else:
         symbol = request.form.get("symbol")
-        shares = int(request.form.get("shares"))
+        shares = request.form.get("shares")
 
-        if not symbol:
+        if not shares.isdigit():
+            return apology("You must enter a integer numbers of shares")
+
+        shares = int(shares)
+
+        if shares < 0:
+            return apology("You must enter a positive numbers of shares")
+
+        elif not symbol:
             return apology("You must enter symbol ticker")
 
         stock = lookup(symbol.upper())
 
         if stock is None:
             return apology("Ticker does not exist")
-
-        if shares < 0:
-            return apology("Not a positive integer")
 
         transaction = shares * stock["price"]
 
@@ -107,7 +112,7 @@ def buy():
 
         flash("Bought!")
 
-        # redirect to main page
+        # возвращаем пользователя на домашнюю страницу
         return redirect("/")
 
 
@@ -124,32 +129,31 @@ def history():
 def login():
     """Log user in"""
 
-    # Forget any user_id
+    # очищаем сессию
     session.clear()
 
-    # User reached route via POST (as by submitting a form via POST)
     if request.method == "POST":
 
-        # Ensure username was submitted
+        # проверка что логин был введен
         if not request.form.get("username"):
-            return apology("must provide username", 403)
+            return apology("must provide username")
 
-        # Ensure password was submitted
+        # проверка что пароль был введен
         elif not request.form.get("password"):
-            return apology("must provide password", 403)
+            return apology("must provide password")
 
-        # Query database for username
+        # запрос в бд для получения инфы о юзере
         rows = db.execute("SELECT * FROM users WHERE username = :name", name=request.form.get("username"))
 
-        # Ensure username exists and password is correct
+        # првоеряем что пароль и логин ввели правильно
         if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
-            return apology("invalid username and/or password", 403)
+            return apology("invalid username and/or password")
 
-        # Remember which user has logged in
+        # запоминаем пользователя в сессию
         session["user_id"] = rows[0]["id"]
 
         flash("You are logged in")
-        # Redirect user to home page
+        # возвращаем пользователя на домашнюю страницу
         return redirect("/")
 
     # User reached route via GET (as by clicking a link or via redirect)
@@ -182,7 +186,7 @@ def quote():
 
         return render_template("quoted.html", quote=stock)
 
-    # if request is GET
+    # если метод get
     else:
         return render_template("quote.html")
 
@@ -190,63 +194,56 @@ def quote():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     """Register user"""
-    # Forget any user_id
+    # очищаем сессию
     session.clear()
 
     if request.method == "POST":
 
-        # Ensure what username was submitted
+        # проверяем что пользователь ввел юзернейм
         if not request.form.get("username"):
-            return apology("must provide username", 400)
+            return apology("must provide username")
 
+        # проверяем что пользователь ввел пароль
         password = request.form.get("password")
-        import re
-        if (len(password) <= 8):
-            return apology("password must be longer than 7 symbols", 400)
+        if re.search("\s", password):
+            return apology("must provide username")
+        # проверяем что пароль сильный
+        # elif (len(password) <= 8):
+        #     return apology("Password must be longer than 7 symbols")
+        # elif not re.search("[a-z]", password):
+        #     return apology("Password must contain a-z symbols")
+        # elif not re.search("[A-Z]", password):
+        #     return apology("Password must contain capital A-Z symbols")
+        # elif not re.search("[0-9]", password):
+        #     return apology("Password must contain 0-9 digits")
+        # elif not re.search("[_@$&?]", password):
+        #     return apology("Password must contain special symbols")
 
-        elif not re.search("[a-z]", password):
-            return apology("password must contain a-z letters", 400)
-
-        elif not re.search("[A-Z]", password):
-            return apology("password must contain A-Z capital letters", 400)
-
-        elif not re.search("[0-9]", password):
-            return apology("password must contain numbers", 400)
-
-        elif not re.search("[_@$&?]", password):
-            return apology("password must contain special symbols", 400)
-
-        elif re.search("\s", password):
-            return apology("must provide password", 400)
-
-        # Ensure what password confirm was submitted
+        # убеждаемся что потверждение пароля пользователь ввел
         if not request.form.get("confirmation"):
-            return apology("must provide confirm password", 400)
+            return apology("must provide confirm password")
 
-        # Ensure what password and confirm password are equal
+        # проверяем что пароль и потверждение совпадает
         elif request.form.get("password") != request.form.get("confirmation"):
-            return apology("Password mismatch", 400)
+            return apology("Password mismatch")
 
-        # check for uniql username
+        # проверяем что пользователь ввел уникальный юзернейм
         try:
             db.execute("INSERT INTO users (username, hash) VALUES(?, ?)",
                        request.form.get("username"), generate_password_hash(request.form.get("password")))
         except:
-            return apology("username already exists", 400)
+            return apology("username already exists")
 
-        # Remember which user has logged in
+        # запоминаем пользователя в текущую сессию
         user_data = db.execute("SELECT * FROM users WHERE username = :name", name=request.form.get("username"))
         session["user_id"] = user_data[0]["id"]
 
-        # db.execute("INSERT INTO purchases (owner_id, symbol, shares, purchase_price, date) VALUES (?, ?, ?, ?, ?)",
-        #            session["user_id"], "", 0, "Cash", datetime.datetime.now())
-
         flash("You are registered")
 
-        # Redirect user to home page
+        # возвращаемся на домашнюю странциу
         return redirect("/")
 
-    # if request == GET
+    # если метод GET
     else:
         return render_template("register.html")
 
@@ -271,19 +268,18 @@ def sell():
         if shares < 0:
             return apology("The minimum number of shares must be at least 1")
 
-        # select the symbol shares of that user
         user_id = session["user_id"]
         # stocks = db.execute("SELECT shares, symbol FROM purchases WHERE owner_id=:id", id=session["user_id"])
 
-        # update user cash (increase)
+        # обновляем баланс пользователя
         transaction_val = shares * stock["price"]
         cash = db.execute("SELECT cash FROM users WHERE id = :id", id=user_id)[0]["cash"]
         new_balance = cash + transaction_val
 
-        db.execute("UPDATE users SET cash = cash + :cash_after WHERE id = :id", id=user_id,
-                   cash_after=new_balance)
+        db.execute("UPDATE users SET cash = :new_balance WHERE id = :id", id=user_id,
+                   new_balance=new_balance)
 
-        # update  of a sell
+        # добавляем строку описывающую текущую операцию
         date = datetime.datetime.now()
         db.execute("INSERT INTO purchases (owner_id, symbol, shares, purchase_price, date) VALUES (?, ?, ?, ?, ?)",
                    user_id,
@@ -296,7 +292,7 @@ def sell():
         if user_shares[0]["shares"] < shares:
             return apology("Too many shares you wanna sell")
 
-        # decrement the shares count
+        # проверка на остаток акций в портфеле
         shares_total = user_shares[0]["shares"] - shares
         # если после вычитания ноль, удалить акции из портфеля
         if shares_total == 0:
@@ -309,14 +305,13 @@ def sell():
         #         WHERE owner_id=:id AND symbol=:symbol", shares=shares_total, id=session["user_id"],
         #                symbol=stock["symbol"])
 
-        # flash bought alert
         flash('Sold!')
 
-        # Redirect user to home page
+        # возвращаемся на домашнюю странциу
         return redirect("/")
 
     else:
-        # If request method GET
+        # если метод GET
         symbols = db.execute("SELECT symbol FROM purchases WHERE owner_id=:id GROUP BY symbol HAVING SUM(shares)",
                              id=session["user_id"])
         return render_template("sell.html", symbols=symbols)
