@@ -9,3 +9,4 @@ else:
     db.execute("UPDATE purchases SET shares=:shares \
         WHERE owner_id=:id AND symbol=:symbol", shares=shares_total, id=session["user_id"],
                symbol=stock["symbol"])
+

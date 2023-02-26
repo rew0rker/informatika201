@@ -49,14 +49,9 @@ def index():
     current_balance = db.execute("SELECT cash FROM users WHERE id = :id", id=user_id)[0]["cash"]
 
     for row in transaction:
-        if row["symbol"]:
-            quote = lookup(row["symbol"])  # <-- эта строка возвращает котировку только для последней покупки
-            row["current_price"] = quote["price"]
-            row["total_amount"] = row["current_price"] * row["shares"]
-        else:
-            row["current_price"] = 0.0
-            row["total_amount"] = 0
-
+        quote = lookup(row["symbol"])  # <-- эта строка возвращает котировку только для последней покупки
+        row["current_price"] = quote["price"]
+        row["total_amount"] = row["current_price"] * row["shares"]
     grand_total = sum([row["total_amount"] for row in transaction]) + current_balance
     return render_template("index.html", transaction=transaction,
                            current_balance=current_balance, grand_total=grand_total)
@@ -123,6 +118,25 @@ def history():
     user_id = session["user_id"]
     history_db = db.execute("SELECT * FROM purchases WHERE owner_id = :id", id=user_id)
     return render_template("history.html", history=history_db)
+
+
+@app.route("/add_balance", methods=["GET", "POST"])
+@login_required
+def add_balance():
+    """func with adding balance"""
+    user_id = session["user_id"]
+    if request.method == "GET":
+        return render_template("add_balance.html")
+    else:
+        new_balance = int(request.form.get("add_balance"))
+
+        if not new_balance:
+            return apology("You must give cash")
+
+        balance_now = db.execute("SELECT cash FROM users WHERE id = ?", user_id)[0]["cash"]
+        balance_after = balance_now + new_balance
+        db.execute("UPDATE users SET cash = :cash WHERE id = :id", cash=balance_after, id=user_id)
+        return redirect("/")
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -204,23 +218,11 @@ def register():
             return apology("must provide username")
 
         # проверяем что пользователь ввел пароль
-        password = request.form.get("password")
-        if re.search("\s", password):
+        elif not request.form.get("password"):
             return apology("must provide username")
-        # проверяем что пароль сильный
-        # elif (len(password) <= 8):
-        #     return apology("Password must be longer than 7 symbols")
-        # elif not re.search("[a-z]", password):
-        #     return apology("Password must contain a-z symbols")
-        # elif not re.search("[A-Z]", password):
-        #     return apology("Password must contain capital A-Z symbols")
-        # elif not re.search("[0-9]", password):
-        #     return apology("Password must contain 0-9 digits")
-        # elif not re.search("[_@$&?]", password):
-        #     return apology("Password must contain special symbols")
 
         # убеждаемся что потверждение пароля пользователь ввел
-        if not request.form.get("confirmation"):
+        elif not request.form.get("confirmation"):
             return apology("must provide confirm password")
 
         # проверяем что пароль и потверждение совпадает
@@ -292,18 +294,6 @@ def sell():
         if user_shares[0]["shares"] < shares:
             return apology("Too many shares you wanna sell")
 
-        # проверка на остаток акций в портфеле
-        shares_total = user_shares[0]["shares"] - shares
-        # если после вычитания ноль, удалить акции из портфеля
-        if shares_total == 0:
-            db.execute("DELETE FROM purchases \
-                    WHERE owner_id=:id AND symbol=:symbol", id=session["user_id"], symbol=stock["symbol"])
-
-        # otherwise, update portfolio shares count
-        # else:
-        #     db.execute("UPDATE purchases SET shares=:shares \
-        #         WHERE owner_id=:id AND symbol=:symbol", shares=shares_total, id=session["user_id"],
-        #                symbol=stock["symbol"])
 
         flash('Sold!')
 
