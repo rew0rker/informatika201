@@ -219,7 +219,22 @@ def register():
 
         # проверяем что пользователь ввел пароль
         elif not request.form.get("password"):
-            return apology("must provide username")
+            return apology("must provide password")
+
+        # import re
+        # password = request.form.get("password")
+        # if (len(password) <= 8):
+        #     return apology("password must be longer than 7 symbols")
+        # elif not re.search("[a-z]", password):
+        #     return apology("password must contain a-z letters")
+        # elif not re.search("[A-Z]", password):
+        #     return apology("password must contain A-Z capital letters")
+        # elif not re.search("[0-9]", password):
+        #     return apology("password must contain numbers")
+        # elif not re.search("[_@$&?]", password):
+        #     return apology("password must contain special symbols")
+        # elif re.search("\s", password):
+        #     return apology("must provide password")
 
         # убеждаемся что потверждение пароля пользователь ввел
         elif not request.form.get("confirmation"):
